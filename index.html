@@ -849,7 +849,13 @@ window.APP_CONFIG = Object.freeze({
       .eq('id', userId)
       .maybeSingle();
 
-    if (error || !profile) {
+    if (error) {
+      // متن کامل خطا فقط در Console؛ به کاربر فقط کد خطا نشون داده می‌شه تا عیب‌یابی ممکن باشه
+      console.error('profiles query failed', error);
+      $('content-area').innerHTML = `<div class="empty-state">خواندن پروفایل از سرور ناموفق بود. (کد خطا: ${esc(error.code || error.status || 'نامشخص')})</div>`;
+      return;
+    }
+    if (!profile) {
       $('content-area').innerHTML = '<div class="empty-state">پروفایلی برای این حساب تعریف نشده است. با مدیر سیستم تماس بگیرید.</div>';
       return;
     }
