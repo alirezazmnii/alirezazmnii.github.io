@@ -569,6 +569,27 @@ html[data-theme="dark"] .trend-tip { background: #EAF0FB; color: #0F1B33; }
 .trend-tip.below.edge-right { transform: translate(-100%, 12px); }
 .trend-axis { display: flex; justify-content: space-between; direction: ltr; font-size: 11px; color: var(--ink-faint); margin: 8px 6px 0; }
 
+/* ---------- پنل بات صدور خودکار (نمای مدیریتی) ---------- */
+.bot-panel {
+  margin-bottom: 22px; padding: 18px;
+  border-radius: var(--radius-lg); border: 1px solid rgba(124,92,224,.35);
+  background: linear-gradient(135deg, rgba(124,92,224,.12) 0%, rgba(0,180,255,.10) 100%);
+  box-shadow: var(--shadow-card);
+}
+.bot-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.bot-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.bot-icon { font-size: 20px; line-height: 1; }
+.bot-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.bot-stat {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; text-align: center; container-type: inline-size;
+}
+.bot-stat .label { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
+.bot-stat .label .unit { opacity: .8; }
+.bot-stat .value { font-size: clamp(16px, 13cqi, 21px); font-weight: 900; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bot-stat.saved .value { color: var(--good); }
+.bot-panel .panel.chart { margin-bottom: 0; }
+
 </style>
 </head>
 <body>
@@ -717,6 +738,9 @@ window.APP_CONFIG = Object.freeze({
 
   const RECENT_DAYS_LIMIT = 200;
 
+  // بات صدور خودکار: در درخت و جمع‌های تیم حساب نمی‌شه و در نمای مدیریتی جدا با نمودار خودش نمایش داده می‌شه
+  const BOT_NAME = 'بات صدور خودکار';
+
   // سرگروه‌هایی که با هم یک «گروه» هستند (برای نمایش «گروه X و Y» در هدر اپراتورهای زیرشان)
   const TEAM_LEAD_GROUPS = [
     ['مهدی فراهانی', 'سرگروه ایران'],
@@ -746,6 +770,20 @@ window.APP_CONFIG = Object.freeze({
   // ارقام انگلیسی داخل متن (مثل تاریخ 1405/06/30) رو فارسی می‌کنه تا با بقیه‌ی اعداد یکدست باشه
   function faDigits(v) {
     return String(v == null ? '' : v).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
+  }
+
+  // سری روزانه برای نمودار: یک نقطه برای هر روز دوره تا امروز؛ روزهای بدون رکورد = ۰
+  function dailySeries(rows) {
+    const bySort = {};
+    (rows || []).forEach((r) => {
+      const k = Number(r.report_date_sort) || 0;
+      bySort[k] = (bySort[k] || 0) + (Number(r.target_count) || 0);
+    });
+    return periodDaysUntilToday().map((d) => ({
+      report_date_sort: String(d.sort),
+      report_date_jalali: d.jalali,
+      target_count: bySort[d.sort] || 0,
+    }));
   }
 
   // تاریخ‌ها صعودی (قدیمی‌ترین اول) — برای جدول‌ها و نمودار
@@ -817,6 +855,23 @@ window.APP_CONFIG = Object.freeze({
   const CURRENT_PERIOD = getCurrentPeriod();
   const TODAY = getTodayJalali();
   const TODAY_SORT = TODAY[0] * 10000 + TODAY[1] * 100 + TODAY[2];
+
+  // همه‌ی روزهای دوره‌ی جاری از ۲۱ام تا امروز (صعودی) — برای نمودارها، تا روزهای بدون رکورد صفر دیده بشن
+  function periodDaysUntilToday() {
+    const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' });
+    const [gy, gm, gd] = fmt.format(new Date()).split('-').map(Number);
+    const base = Date.UTC(gy, gm - 1, gd);
+    const start = Number(CURRENT_PERIOD.startSort);
+    const days = [];
+    for (let k = 0; k < 40; k++) {
+      const d = new Date(base - k * 86400000);
+      const [jy, jm, jd] = gregorianToJalali(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+      const sort = jy * 10000 + jm * 100 + jd;
+      if (sort < start) break;
+      days.push({ sort, jalali: `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}` });
+    }
+    return days.reverse();
+  }
 
   // ---------------------------------------------------------------
   // وضعیت برنامه
@@ -1008,7 +1063,8 @@ window.APP_CONFIG = Object.freeze({
     }
 
     const asc = sortAsc(rows);
-    content.innerHTML = topHtml + renderDailyTrendChart(asc) + `
+    const series = dailySeries(rows);
+    content.innerHTML = topHtml + renderDailyTrendChart(series) + `
       <div class="tree-node">
         <div class="tree-row role-team_lead" id="month-card-toggle" tabindex="0" role="button" aria-expanded="false">
           <span class="chevron">◀</span>
@@ -1022,7 +1078,7 @@ window.APP_CONFIG = Object.freeze({
       </div>
     `;
 
-    bindTrendChart(asc);
+    bindTrendChart(series);
 
     const toggle = $('month-card-toggle');
     const detail = $('month-card-detail');
@@ -1114,7 +1170,7 @@ window.APP_CONFIG = Object.freeze({
 
   function trendY(v, max) { return TREND_H - (v / max) * TREND_H; }
 
-  function renderDailyTrendChart(asc) {
+  function renderDailyTrendChart(asc, id = 'trend', title = `روند صدور روزانه در ${CURRENT_PERIOD.label}`) {
     if (!asc || asc.length < 2) return '';
     const values = asc.map((r) => Number(r.target_count) || 0);
     const max = Math.max(...values, 1);
@@ -1127,24 +1183,24 @@ window.APP_CONFIG = Object.freeze({
     return `
       <div class="panel chart trend">
         <div class="trend-head">
-          <div class="label">روند صدور روزانه در ${esc(CURRENT_PERIOD.label)}</div>
+          <div class="label">${esc(title)}</div>
           <div class="trend-max">بیشترین: ${formatNum(max)}</div>
         </div>
-        <div class="trend-plot" id="trend-plot" tabindex="0" role="img"
+        <div class="trend-plot" id="${id}-plot" tabindex="0" role="img"
              aria-label="نمودار صدور روزانه؛ با کلیدهای جهت‌نما بین روزها جابه‌جا شوید">
           <svg viewBox="0 0 100 ${TREND_H}" preserveAspectRatio="none" aria-hidden="true">
             <defs>
-              <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="${id}-fill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" class="trend-fill-top" />
                 <stop offset="100%" class="trend-fill-bottom" />
               </linearGradient>
             </defs>
             <line x1="0" y1="${TREND_H / 2}" x2="100" y2="${TREND_H / 2}" class="trend-grid" />
-            <path d="${area}" fill="url(#trendFill)" />
+            <path d="${area}" fill="url(#${id}-fill)" />
             <path d="${line}" class="trend-line" />
           </svg>
           ${dots}
-          <div class="trend-tip" id="trend-tip" hidden><b></b><span></span></div>
+          <div class="trend-tip" id="${id}-tip" hidden><b></b><span></span></div>
         </div>
         <div class="trend-axis"><span>${esc(faDigits(asc[0].report_date_jalali))}</span><span>${esc(faDigits(asc[n - 1].report_date_jalali))}</span></div>
       </div>
@@ -1152,13 +1208,13 @@ window.APP_CONFIG = Object.freeze({
   }
 
   // لایه‌ی تعاملی: نزدیک‌ترین روز به نشانگر ماوس/انگشت (یا کلیدهای جهت‌نما) انتخاب می‌شه
-  function bindTrendChart(asc) {
-    const plot = $('trend-plot');
+  function bindTrendChart(asc, id = 'trend') {
+    const plot = $(`${id}-plot`);
     if (!plot) return;
     const values = asc.map((r) => Number(r.target_count) || 0);
     const max = Math.max(...values, 1);
     const n = values.length;
-    const tip = $('trend-tip');
+    const tip = $(`${id}-tip`);
     const dots = plot.querySelectorAll('.trend-dot');
     let current = -1;
 
@@ -1199,6 +1255,26 @@ window.APP_CONFIG = Object.freeze({
     });
   }
 
+  // پنل بات: صدور دوره، صدور امروز، حقوقی که صرفه‌جویی شده، و نمودار روزانه (روزهای بی‌کار = ۰)
+  function renderBotPanel(rows) {
+    const total = rows.reduce((s, r) => s + (Number(r.target_count) || 0), 0);
+    const saved = rows.reduce((s, r) => s + (Number(r.daily_salary) || 0), 0);
+    const today = rows
+      .filter((r) => Number(r.report_date_sort) === TODAY_SORT)
+      .reduce((s, r) => s + (Number(r.target_count) || 0), 0);
+    return `
+      <section class="bot-panel" aria-label="${esc(BOT_NAME)}">
+        <div class="bot-head"><span class="bot-icon" aria-hidden="true">🤖</span><h2>${esc(BOT_NAME)}</h2></div>
+        <div class="bot-stats">
+          <div class="bot-stat"><div class="label">صدور ${esc(CURRENT_PERIOD.label)}</div><div class="value">${formatNum(total)}</div></div>
+          <div class="bot-stat"><div class="label">صدور امروز</div><div class="value">${formatNum(today)}</div></div>
+          <div class="bot-stat saved"><div class="label">صرفه‌جویی در حقوق <span class="unit">(ریال)</span></div><div class="value">${formatNum(saved)}</div></div>
+        </div>
+        ${renderDailyTrendChart(dailySeries(rows), 'bot', `صدور روزانه‌ی بات در ${CURRENT_PERIOD.label}`)}
+      </section>
+    `;
+  }
+
   // ---------------------------------------------------------------
   // نمای مدیریتی (سرگروه / سرپرست / مدیر)
   // ---------------------------------------------------------------
@@ -1228,8 +1304,12 @@ window.APP_CONFIG = Object.freeze({
       return;
     }
 
+    // --- بات جدا می‌شه: نه در درخت، نه در جمع‌ها و تعداد نفرات
+    const bot = (profilesRes.data || []).find((p) => (p.full_name || '').trim() === BOT_NAME) || null;
+    const botRows = bot ? (targetsRes.data || []).filter((r) => r.operator_id === bot.id) : [];
+
     // --- ساختار درخت
-    state.visibleProfiles = profilesRes.data || [];
+    state.visibleProfiles = (profilesRes.data || []).filter((p) => !bot || p.id !== bot.id);
     state.profileById = {};
     state.childrenOf = {};
     state.visibleProfiles.forEach((p) => {
@@ -1239,12 +1319,13 @@ window.APP_CONFIG = Object.freeze({
 
     // --- وضعیت فعال/غیرفعال
     state.statusByOperator = {};
-    (statusRes.data || []).forEach((r) => { state.statusByOperator[r.operator_id] = r; });
+    (statusRes.data || []).forEach((r) => { if (!bot || r.operator_id !== bot.id) state.statusByOperator[r.operator_id] = r; });
 
     // --- عملکرد و حقوق
     state.targetsByOperator = {};
     state.rawTargetsByOperator = {};
     (targetsRes.data || []).forEach((r) => {
+      if (bot && r.operator_id === bot.id) return;
       const b = (state.targetsByOperator[r.operator_id] = state.targetsByOperator[r.operator_id] || { total: 0, totalSalary: 0, count: 0, lastDate: null, lastDateSort: 0, todayCount: 0 });
       const sortNum = Number(r.report_date_sort) || 0;
       b.total += Number(r.target_count) || 0;
@@ -1293,6 +1374,7 @@ window.APP_CONFIG = Object.freeze({
     )).sort((a, b) => a.localeCompare(b, 'fa'));
 
     content.innerHTML = `
+      ${bot ? renderBotPanel(botRows) : ''}
       ${companyStatsHtml}
       <div class="filters">
         <input type="search" class="tree-search" id="tree-search" placeholder="جستجوی نام..." aria-label="جستجوی نام">
@@ -1307,6 +1389,7 @@ window.APP_CONFIG = Object.freeze({
     `;
 
     renderTree(profile.id);
+    if (bot) bindTrendChart(dailySeries(botRows), 'bot');
 
     $('tree-search').addEventListener('input', (e) => {
       state.search = e.target.value.trim();
