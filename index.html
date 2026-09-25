@@ -530,7 +530,7 @@ html[data-theme="dark"] .company-stats-row .company-pill { background: rgba(0,18
 }
 .donut-hole b { font-size: 20px; font-weight: 800; }
 .donut-hole small { font-size: 11px; color: var(--ink-faint); }
-.donut-info { text-align: right; max-width: 280px; }
+.donut-info { text-align: right; max-width: 360px; display: grid; gap: 8px; }
 .donut-info .updated { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 6px; }
 .donut-info .names { font-size: 13px; }
 .trend-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
@@ -589,6 +589,15 @@ html[data-theme="dark"] .trend-tip { background: #EAF0FB; color: #0F1B33; }
 .bot-stat .value { font-size: clamp(16px, 13cqi, 21px); font-weight: 900; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bot-stat.saved .value { color: var(--good); }
 .bot-panel .panel.chart { margin-bottom: 0; }
+
+/* شرکت‌های گروه در نمای اپراتور: فعال‌ها پررنگ */
+.company-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.company-chip {
+  font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 999px;
+  background: var(--surface-tint); color: var(--ink-faint); border: 1px solid var(--line);
+}
+.company-chip.on { background: var(--good-soft); color: var(--good); border-color: transparent; font-weight: 700; }
+.donut-info .outside { font-size: 12px; color: var(--ink-soft); }
 
 </style>
 </head>
@@ -1014,7 +1023,7 @@ window.APP_CONFIG = Object.freeze({
   // نمای اپراتور
   // ---------------------------------------------------------------
   async function renderOperatorView(profile) {
-    const [{ data, error }, { data: ownStatus, error: statusError }] = await Promise.all([
+    const [{ data, error }, { data: ownStatus, error: statusError }, { data: scopeRows }] = await Promise.all([
       sb.from('daily_targets')
         .select('report_date_jalali, report_date_sort, target_count, daily_salary')
         .eq('operator_id', profile.id)
@@ -1027,7 +1036,12 @@ window.APP_CONFIG = Object.freeze({
         .select('*')
         .eq('operator_id', profile.id)
         .maybeSingle(),
+      // شرکت‌های گروهِ سرگروه (RLS: فقط ردیف‌های سرگروه مستقیم خود کاربر)
+      profile.reports_to
+        ? sb.from('team_lead_company_scope').select('company, sort_order').eq('profile_id', profile.reports_to).order('sort_order')
+        : Promise.resolve({ data: null }),
     ]);
+    const groupCompanies = (scopeRows || []).map((r) => (r.company || '').trim()).filter(Boolean);
 
     if (statusError) console.error('issuer_active_status query failed', statusError);
     renderOperatorStatusBadges(ownStatus);
@@ -1055,7 +1069,9 @@ window.APP_CONFIG = Object.freeze({
       <div class="summary-card"><div class="label">آخرین روز فعالیت</div><div class="value date">${last ? esc(faDigits(last.report_date_jalali)) : '—'}</div></div>
     `;
 
-    const topHtml = renderCompaniesRow(ownStatus) + renderCompanyDonut(ownStatus);
+    const topHtml = groupCompanies.length
+      ? renderGroupCompanies(ownStatus, groupCompanies)
+      : renderCompaniesRow(ownStatus) + renderCompanyDonut(ownStatus);
 
     if (rows.length === 0) {
       content.innerHTML = topHtml + '<div class="panel"><div class="empty-state">هنوز رکوردی برای شما ثبت نشده است</div></div>';
@@ -1136,6 +1152,35 @@ window.APP_CONFIG = Object.freeze({
 
   // نمودار دونات: چند شرکت از کل شرکت‌هایی که اپراتور تا حالا باهاشون کار کرده، الان فعاله
   // (تارگت‌ها به‌تفکیک شرکت ثبت نمی‌شن، پس مبنا وضعیت فعال/غیرفعال شرکت‌هاست، نه تعداد صدور هر شرکت)
+  // شرکت‌های گروه (از team_lead_company_scope) در مقابل شرکت‌هایی که اپراتور الان در آن‌ها فعال است:
+  // دونات = چند شرکت از شرکت‌های گروه فعال است؛ زیرش همه‌ی شرکت‌های گروه، فعال‌ها پررنگ.
+  function renderGroupCompanies(status, group) {
+    const active = new Set(splitCompanies(status && status.companies));
+    const activeInGroup = group.filter((c) => active.has(c));
+    const outside = [...active].filter((c) => !group.includes(c));
+    const pct = Math.round((activeInGroup.length / group.length) * 100);
+    const updated = status && status.updated_at
+      ? new Date(status.updated_at).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' })
+      : '—';
+    return `
+      <div class="panel chart donut-panel">
+        <div class="label">شرکت‌های فعال شما از شرکت‌های گروه</div>
+        <div class="donut-wrap">
+          <div class="donut" style="--pct:${pct}" role="img" aria-label="${pct} درصد از شرکت‌های گروه فعال">
+            <div class="donut-hole"><b>${formatNum(pct)}٪</b><small>${formatNum(activeInGroup.length)} از ${formatNum(group.length)}</small></div>
+          </div>
+          <div class="donut-info">
+            <div class="company-chips">
+              ${group.map((c) => `<span class="company-chip ${active.has(c) ? 'on' : ''}">${active.has(c) ? '✓ ' : ''}${esc(c)}</span>`).join('')}
+            </div>
+            ${outside.length ? `<div class="outside">فعال خارج از گروه: ${outside.map(esc).join('، ')}</div>` : ''}
+            <div class="updated">آخرین به‌روزرسانی: ${esc(updated)}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderCompanyDonut(status) {
     if (!status) return '';
     const activeNames = splitCompanies(status.companies);
