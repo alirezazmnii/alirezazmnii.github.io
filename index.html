@@ -22,6 +22,17 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+/* ---------- فونت IRANSans ----------
+   فایل‌های فونت (نسخه‌ی FaNum با اعداد فارسی) در public/assets/fonts/ قرار می‌گیرند.
+   تا وقتی فایل‌ها اضافه نشده‌اند، اگر فونت روی سیستم کاربر نصب باشد همان استفاده می‌شود
+   و در غیر این صورت Vazirmatn. اسکریپت ساخت، فایل‌های موجود را داخل خروجی می‌گذارد. */
+@font-face { font-family: 'IRANSans'; font-weight: 400; font-display: swap;
+  src: local('IRANSansWeb(FaNum)'), local('IRANSans'); }
+@font-face { font-family: 'IRANSans'; font-weight: 500 600; font-display: swap;
+  src: local('IRANSansWeb(FaNum) Medium'), local('IRANSans Medium'); }
+@font-face { font-family: 'IRANSans'; font-weight: 700 900; font-display: swap;
+  src: local('IRANSansWeb(FaNum) Bold'), local('IRANSans Bold'); }
+
 :root {
   --bg: transparent;
   --surface: rgba(255,255,255,.72);
@@ -45,7 +56,7 @@
   --glass-blur: 18px;
   --shadow-card: 0 8px 28px rgba(15,72,150,.14), inset 0 1px 0 rgba(255,255,255,.6);
   --shadow-float: 0 24px 55px -14px rgba(15,72,150,.22), inset 0 1px 0 rgba(255,255,255,.7);
-  --font: 'Vazirmatn', Tahoma, sans-serif;
+  --font: 'IRANSans', 'Vazirmatn', Tahoma, sans-serif;
   --topbar-bg: rgba(255,255,255,.4);
 }
 html[data-theme="dark"] {
@@ -250,7 +261,8 @@ main { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding
   border-radius: var(--radius-lg);
   padding: 18px 20px;
   display: flex; flex-direction: column; justify-content: space-between; gap: 8px;
-  min-height: 108px;
+  min-height: 104px;
+  container-type: inline-size;
   box-shadow: 0 16px 34px -16px rgba(22,86,245,.5), inset 0 1px 0 rgba(255,255,255,.45);
   position: relative; overflow: hidden;
 }
@@ -259,12 +271,15 @@ main { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding
   background: radial-gradient(140px 140px at 90% 0%, rgba(255,255,255,.25), transparent 70%);
 }
 .summary-card .label { font-size: 13px; color: rgba(255,255,255,.9); font-weight: 600; position: relative; line-height: 1.5; }
-.summary-card .value { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -.01em; position: relative; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.summary-card .value {
+  font-size: clamp(16px, 15cqi, 22px); font-weight: 800; color: #fff;
+  position: relative; line-height: 1.3; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
 .summary-card .value.salary { color: #CFFFE6; }
 .summary-card .sub { font-size: 12px; color: rgba(255,255,255,.85); margin-top: 4px; position: relative; }
 .summary-card .value small { font-size: 14px; opacity: .85; font-weight: 700; }
-.summary-card .value.date { font-size: 21px; }
-.summary-card .unit { font-size: 13px; font-weight: 600; }
+.summary-card .value.date { font-size: clamp(15px, 11cqi, 19px); }
+.summary-card .label .unit { font-weight: 500; opacity: .8; }
 
 /* ---------- Panels / tables ---------- */
 .panel {
@@ -979,7 +994,7 @@ window.APP_CONFIG = Object.freeze({
       .reduce((s, r) => s + (Number(r.target_count) || 0), 0);
 
     $('summary-row').innerHTML = `
-      <div class="summary-card"><div class="label">جمع کل حقوق</div><div class="value salary">${formatNum(totalSalary)} <span class="unit">ریال</span></div></div>
+      <div class="summary-card"><div class="label">جمع کل حقوق <span class="unit">(ریال)</span></div><div class="value salary">${formatNum(totalSalary)}</div></div>
       <div class="summary-card"><div class="label">جمع کل ثبت‌شده</div><div class="value">${formatNum(total)}</div></div>
       <div class="summary-card"><div class="label">صدور امروز</div><div class="value">${formatNum(todayCount)}</div></div>
       <div class="summary-card"><div class="label">روزهای فعالیت در ماه</div><div class="value">${formatNum(rows.length)}</div></div>
@@ -1252,7 +1267,7 @@ window.APP_CONFIG = Object.freeze({
     const myActive = state.activeCountBySubtree[profile.id] || 0;
 
     $('summary-row').innerHTML = `
-      <div class="summary-card"><div class="label">جمع کل حقوق تیم</div><div class="value salary">${formatNum(grandTotalSalary)}</div></div>
+      <div class="summary-card"><div class="label">جمع کل حقوق تیم <span class="unit">(ریال)</span></div><div class="value salary">${formatNum(grandTotalSalary)}</div></div>
       <div class="summary-card"><div class="label">جمع کل عملکرد تیم</div><div class="value">${formatNum(grandTotal)}</div></div>
       <div class="summary-card">
         <div class="label">کاربران فعال زیرمجموعه</div>
