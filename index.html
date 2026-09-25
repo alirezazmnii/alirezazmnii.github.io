@@ -224,6 +224,7 @@ header.topbar {
   font-weight: 600; font-size: 11.5px;
   padding: 2px 10px; border-radius: 999px; margin-top: 3px;
 }
+.user-group-info { font-size: 11px; color: var(--ink-faint); margin-top: 3px; }
 .topbar-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .sync-note { font-size: 12px; color: var(--ink-faint); }
 button.ghost {
@@ -258,6 +259,8 @@ main { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding
 .summary-card .value.salary { color: #CFFFE6; }
 .summary-card .sub { font-size: 12px; color: rgba(255,255,255,.85); margin-top: 4px; position: relative; }
 .summary-card .value small { font-size: 14px; opacity: .85; font-weight: 700; }
+.summary-card .value.date { font-size: 19px; }
+.summary-card .unit { font-size: 13px; font-weight: 600; }
 
 /* ---------- Panels / tables ---------- */
 .panel {
@@ -494,6 +497,31 @@ html[data-theme="dark"] .company-stats-row .company-pill { background: rgba(0,18
   .tree-children-inner > .tree-node, .leaf-detail-inner table.rows tr { animation: none; }
 }
 
+/* ---------- نمودار دونات شرکت‌ها و روند صدور روزانه (نمای اپراتور) ---------- */
+.panel.chart { padding: 20px; margin-bottom: 20px; }
+.panel.chart > .label { font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; }
+.panel.donut-panel { text-align: center; padding: 22px 20px; }
+.donut-wrap { display: flex; align-items: center; justify-content: center; gap: 22px; flex-wrap: wrap; }
+.donut {
+  position: relative; width: 120px; height: 120px; border-radius: 50%;
+  background: conic-gradient(var(--accent) 0 calc(var(--pct) * 1%), var(--surface-tint) 0 100%);
+}
+.donut-hole {
+  position: absolute; inset: 14px; border-radius: 50%; background: var(--surface);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.donut-hole b { font-size: 20px; font-weight: 800; }
+.donut-hole small { font-size: 11px; color: var(--ink-faint); }
+.donut-info { text-align: right; max-width: 280px; }
+.donut-info .updated { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 6px; }
+.donut-info .names { font-size: 13px; }
+.trend svg { width: 100%; height: 160px; display: block; direction: ltr; }
+.trend .trend-line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.trend .trend-dot { fill: var(--accent-strong); }
+.trend .trend-fill-top { stop-color: var(--accent); stop-opacity: .35; }
+.trend .trend-fill-bottom { stop-color: var(--accent); stop-opacity: 0; }
+.trend-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-faint); margin-top: 4px; }
+
 </style>
 </head>
 <body>
@@ -536,6 +564,7 @@ html[data-theme="dark"] .company-stats-row .company-pill { background: rgba(0,18
         <div>
           <div class="user-name" id="user-name">—</div>
           <div class="role-badge" id="user-role">—</div>
+          <div class="user-group-info" id="user-group-info"></div>
         </div>
       </div>
       <div class="topbar-right">
@@ -640,6 +669,19 @@ window.APP_CONFIG = Object.freeze({
   };
 
   const RECENT_DAYS_LIMIT = 200;
+
+  // سرگروه‌هایی که با هم یک «گروه» هستند (برای نمایش «گروه X و Y» در هدر اپراتورهای زیرشان)
+  const TEAM_LEAD_GROUPS = [
+    ['مهدی فراهانی', 'سرگروه ایران'],
+    ['مهدی ایازی', 'فاطمه دهقانپور'],
+    ['آتنا مالمیر', 'امیررضا فلاح'],
+  ];
+
+  function getGroupLabel(teamLeadName) {
+    const grp = TEAM_LEAD_GROUPS.find((g) => g.includes(teamLeadName));
+    if (!grp) return null;
+    return 'گروه ' + grp.map((n) => n.trim().split(/\s+/)[0]).join(' و ');
+  }
 
   // ---------------------------------------------------------------
   // ابزارهای کمکی
@@ -814,7 +856,15 @@ window.APP_CONFIG = Object.freeze({
 
     state.profile = profile;
     state.viewerRole = profile.role;
-    renderTopbar(profile);
+    // برای اپراتور، سرگروه مستقیمش هم خوانده می‌شه (برای «گروه ... · سرگروه: ...» در هدر).
+    // اگه RLS اجازه‌ی خوندن پروفایل سرگروه رو نده، فقط این خط خالی می‌مونه.
+    let manager = null;
+    if (profile.role === 'operator' && profile.reports_to) {
+      const { data: mgr } = await sb.from('profiles').select('id, full_name').eq('id', profile.reports_to).maybeSingle();
+      manager = mgr || null;
+    }
+
+    renderTopbar(profile, manager);
     $('period-label').textContent = `دوره‌ی جاری: ${CURRENT_PERIOD.label}`;
     loadSyncStatus();
 
@@ -822,10 +872,16 @@ window.APP_CONFIG = Object.freeze({
     else await renderManagerialView(profile);
   }
 
-  function renderTopbar(profile) {
+  function renderTopbar(profile, manager) {
     $('user-name').textContent = profile.full_name || '—';
     $('user-role').textContent = ROLE_LABELS[profile.role] || profile.role;
     $('user-avatar').textContent = (profile.full_name || '?').trim().charAt(0);
+    let groupInfo = '';
+    if (manager && manager.full_name) {
+      const groupLabel = getGroupLabel(manager.full_name);
+      groupInfo = groupLabel ? `${groupLabel} · سرگروه: ${manager.full_name}` : `سرگروه: ${manager.full_name}`;
+    }
+    $('user-group-info').textContent = groupInfo;
   }
 
   async function loadSyncStatus() {
@@ -849,7 +905,7 @@ window.APP_CONFIG = Object.freeze({
         .order('report_date_sort', { ascending: false })
         .limit(RECENT_DAYS_LIMIT),
       sb.from('issuer_active_status')
-        .select('is_active, is_active_to_issue, companies')
+        .select('is_active, is_active_to_issue, companies, all_companies, updated_at')
         .eq('operator_id', profile.id)
         .maybeSingle(),
     ]);
@@ -866,36 +922,36 @@ window.APP_CONFIG = Object.freeze({
       .sort((a, b) => (Number(b.report_date_sort) || 0) - (Number(a.report_date_sort) || 0));
     const total = rows.reduce((s, r) => s + (Number(r.target_count) || 0), 0);
     const totalSalary = rows.reduce((s, r) => s + (Number(r.daily_salary) || 0), 0);
-    const last = rows[0];
+    const last = rows[0]; // آخرین رکورد ثبت‌شده (نه لزوماً امروز)
+    const todayCount = rows
+      .filter((r) => Number(r.report_date_sort) === TODAY_SORT)
+      .reduce((s, r) => s + (Number(r.target_count) || 0), 0);
 
     $('summary-row').innerHTML = `
-      <div class="summary-card"><div class="label">جمع کل حقوق</div><div class="value salary">${formatNum(totalSalary)}</div></div>
+      <div class="summary-card"><div class="label">جمع کل حقوق</div><div class="value salary">${formatNum(totalSalary)} <span class="unit">ریال</span></div></div>
       <div class="summary-card"><div class="label">جمع کل ثبت‌شده</div><div class="value">${formatNum(total)}</div></div>
-      <div class="summary-card">
-        <div class="label">صدور آخرین روز ثبت‌شده</div>
-        <div class="value">${last && last.target_count != null ? formatNum(last.target_count) : '—'}</div>
-        <div class="sub">${last ? esc(last.report_date_jalali) : ''}</div>
-      </div>
-      <div class="summary-card"><div class="label">تعداد روزهای ثبت‌شده</div><div class="value">${formatNum(rows.length)}</div></div>
+      <div class="summary-card"><div class="label">صدور امروز</div><div class="value">${formatNum(todayCount)}</div></div>
+      <div class="summary-card"><div class="label">تعداد روزهای فعالیت در ماه</div><div class="value">${formatNum(rows.length)}</div></div>
+      <div class="summary-card"><div class="label">آخرین روز فعالیت</div><div class="value date">${last ? esc(last.report_date_jalali) : '—'}</div></div>
     `;
 
-    const companiesHtml = renderCompaniesRow(ownStatus && ownStatus.companies);
+    const topHtml = renderCompaniesRow(ownStatus && ownStatus.companies) + renderCompanyDonut(ownStatus);
 
     if (rows.length === 0) {
-      content.innerHTML = companiesHtml + '<div class="panel"><div class="empty-state">هنوز رکوردی برای شما ثبت نشده است</div></div>';
+      content.innerHTML = topHtml + '<div class="panel"><div class="empty-state">هنوز رکوردی برای شما ثبت نشده است</div></div>';
       return;
     }
 
-    content.innerHTML = companiesHtml + `
+    content.innerHTML = topHtml + renderDailyTrendChart(rows) + `
       <div class="tree-node">
         <div class="tree-row role-team_lead" id="month-card-toggle" tabindex="0" role="button" aria-expanded="false">
           <span class="chevron">◀</span>
           <span class="name">${esc(CURRENT_PERIOD.label)}</span>
           <span class="spacer"></span>
-          <span class="tree-count">${formatNum(rows.length)} روز ثبت‌شده</span>
+          <span class="tree-count">${formatNum(rows.length)} روز فعالیت</span>
         </div>
         <div class="tree-children" id="month-card-detail">
-          <div class="tree-children-inner">${rowsTableHtml(rows)}</div>
+          <div class="tree-children-inner">${rowsTableHtml(rows, 'حقوق روز (ریال)')}</div>
         </div>
       </div>
     `;
@@ -912,13 +968,13 @@ window.APP_CONFIG = Object.freeze({
     toggle.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
   }
 
-  function rowsTableHtml(rows) {
+  function rowsTableHtml(rows, salaryHeader = 'حقوق روز') {
     return `
       <table class="rows">
         <tr>
           <td class="num-head">تاریخ</td>
           <td class="num num-head">عملکرد</td>
-          <td class="num num-head">حقوق روز</td>
+          <td class="num num-head">${salaryHeader}</td>
         </tr>
         ${rows.map((r, i) => `
           <tr style="--i:${i}">
@@ -949,6 +1005,67 @@ window.APP_CONFIG = Object.freeze({
       <div class="panel companies">
         <div class="label">شرکت‌های فعال</div>
         <div class="names">${names.map(esc).join('،  ')}</div>
+      </div>
+    `;
+  }
+
+  // نمودار دونات: چند شرکت از کل شرکت‌هایی که اپراتور تا حالا باهاشون کار کرده، الان فعاله
+  // (تارگت‌ها به‌تفکیک شرکت ثبت نمی‌شن، پس مبنا وضعیت فعال/غیرفعال شرکت‌هاست، نه تعداد صدور هر شرکت)
+  function renderCompanyDonut(status) {
+    if (!status) return '';
+    const activeNames = splitCompanies(status.companies);
+    const allNames = splitCompanies(status.all_companies);
+    const total = allNames.length || activeNames.length;
+    if (total === 0) return '';
+    const activeCount = activeNames.length;
+    const pct = Math.round((activeCount / total) * 100);
+    const updated = status.updated_at
+      ? new Date(status.updated_at).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' })
+      : '—';
+    return `
+      <div class="panel chart donut-panel">
+        <div class="label">شرکت‌های فعال از کل شرکت‌های همکاری‌شده</div>
+        <div class="donut-wrap">
+          <div class="donut" style="--pct:${pct}" role="img" aria-label="${pct} درصد فعال">
+            <div class="donut-hole"><b>${formatNum(pct)}٪</b><small>${formatNum(activeCount)} از ${formatNum(total)}</small></div>
+          </div>
+          <div class="donut-info">
+            <div class="updated">آخرین به‌روزرسانی: ${esc(updated)}</div>
+            <div class="names">${activeNames.length ? activeNames.map(esc).join('،  ') : 'در حال حاضر فعال نیست'}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // نمودار خطی صدور روزانه در دوره‌ی جاری
+  function renderDailyTrendChart(rows) {
+    if (!rows || rows.length < 2) return '';
+    const asc = rows.slice().sort((a, b) => (Number(a.report_date_sort) || 0) - (Number(b.report_date_sort) || 0));
+    const values = asc.map((r) => Number(r.target_count) || 0);
+    const max = Math.max(...values, 1);
+    const min = Math.min(...values, 0);
+    const w = 640, h = 160, padX = 12, padY = 16;
+    const span = Math.max(max - min, 1);
+    const stepX = (w - padX * 2) / (values.length - 1);
+    const pts = values.map((v, i) => [padX + i * stepX, h - padY - ((v - min) / span) * (h - padY * 2)]);
+    const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${h - padY} L${pts[0][0].toFixed(1)},${h - padY} Z`;
+    return `
+      <div class="panel chart trend">
+        <div class="label">روند صدور روزانه در ${esc(CURRENT_PERIOD.label)}</div>
+        <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="نمودار صدور روزانه">
+          <defs>
+            <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" class="trend-fill-top" />
+              <stop offset="100%" class="trend-fill-bottom" />
+            </linearGradient>
+          </defs>
+          <path d="${area}" fill="url(#trendFill)" />
+          <path d="${line}" class="trend-line" />
+          ${pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" class="trend-dot"><title>${esc(asc[i].report_date_jalali)}: ${formatNum(values[i])}</title></circle>`).join('')}
+        </svg>
+        <div class="trend-axis"><span>${esc(asc[0].report_date_jalali)}</span><span>${esc(asc[asc.length - 1].report_date_jalali)}</span></div>
       </div>
     `;
   }
@@ -1157,7 +1274,8 @@ window.APP_CONFIG = Object.freeze({
     const salaryLabel = isLeaf ? (own ? formatNum(own.totalSalary) : '—') : formatNum(state.subtreeSalary[id]);
     const countLabel = isLeaf ? (own ? `${formatNum(own.count)} روز` : 'بدون رکورد') : `${formatNum(kids.length)} زیرمجموعه`;
 
-    const lead = isLeaf
+    // نقطه‌ی وضعیت فقط برای خودِ اپراتورها؛ سرگروهِ بدون زیرمجموعه هم فلش می‌گیره
+    const lead = (isLeaf && p.role === 'operator')
       ? `<span class="leaf-dot"></span><span class="status-dot ${active ? '' : 'inactive'}" title="${active ? 'فعال' : 'غیرفعال'}"></span>`
       : '<span class="chevron">◀</span>';
 
