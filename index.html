@@ -351,6 +351,15 @@ table.rows .pill.salary { color: var(--good); background: var(--good-soft); }
   flex-shrink: 0;
 }
 .tree-row .spacer { flex: 1; }
+/* برچسب‌ها وسط ردیف: اگر زیاد بودند همان‌جا به خط بعد می‌روند و جمع‌ها سمت چپ ثابت می‌مانند */
+.tree-row .tree-badges { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.tree-row .tree-badges:empty { min-height: 1px; }
+@media (min-width: 561px) { .tree-row { flex-wrap: nowrap; } }
+@media (max-width: 560px) {
+  .tree-row .tree-badges { flex-basis: 100%; order: 5; }
+  .tree-row .tree-badges:empty { display: none; }
+  .tree-row .tree-count { margin-inline-start: auto; }
+}
 .tree-row .tree-total { font-size: 13.5px; font-weight: 700; color: var(--ink); direction: ltr; }
 .tree-row .tree-count { font-size: 11px; color: var(--ink-faint); min-width: 76px; text-align: left; }
 .tree-search {
@@ -552,7 +561,7 @@ html[data-theme="dark"] .company-stats-row .company-pill { background: rgba(0,18
 .panel.donut-panel.group-panel { text-align: center; }
 .donut-wrap.group { justify-content: center; flex-wrap: nowrap; }
 .donut-wrap.group .donut-info { max-width: 100%; min-width: 0; text-align: center; justify-items: center; }
-.donut-wrap.group .company-chips { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: thin; padding-bottom: 2px; }
+.donut-wrap.group .company-chips { flex-wrap: nowrap; justify-content: safe center; overflow-x: auto; max-width: 100%; scrollbar-width: thin; padding-bottom: 2px; }
 .donut-wrap.group .company-chip { white-space: nowrap; flex-shrink: 0; }
 .donut-wrap.group .outside { justify-items: center; }
 .donut-wrap.group .outside .company-chips { justify-content: center; }
@@ -563,6 +572,10 @@ html[data-theme="dark"] .company-stats-row .company-pill { background: rgba(0,18
   .donut-wrap.group .donut-info { width: 100%; }
   .donut-wrap.group .company-chips { gap: 4px; }
   .donut-wrap.group .company-chip { font-size: 10.5px; padding: 3px 7px; }
+  .donut-wrap.group .company-chip .chk { display: none; }
+  .leaf-detail-inner .donut-panel { padding: 18px 10px; }
+  .leaf-detail-inner .donut-wrap.group .company-chips { gap: 3px; }
+  .leaf-detail-inner .donut-wrap.group .company-chip { font-size: 9.5px; padding: 3px 5px; }
 }
 .trend-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
 .trend-head .label { font-size: 13px; color: var(--ink-soft); }
@@ -1210,7 +1223,7 @@ window.APP_CONFIG = Object.freeze({
           </div>
           <div class="donut-info">
             <div class="company-chips">
-              ${group.map((c) => `<span class="company-chip ${active.has(c) ? 'on' : ''}">${active.has(c) ? '✓ ' : ''}${esc(c)}</span>`).join('')}
+              ${group.map((c) => `<span class="company-chip ${active.has(c) ? 'on' : ''}">${active.has(c) ? '<span class="chk">✓ </span>' : ''}${esc(c)}</span>`).join('')}
             </div>
             ${outside.length ? `
               <div class="outside">
@@ -1606,8 +1619,7 @@ window.APP_CONFIG = Object.freeze({
           ${lead}
           <span class="name">${esc(p.full_name || '—')}</span>
           <span class="tree-role">${esc(ROLE_LABELS[p.role] || p.role)}</span>
-          ${activeBadge}${companiesBadge}${todayBadge}${lastBadge}
-          <span class="spacer"></span>
+          <span class="tree-badges">${activeBadge}${companiesBadge}${todayBadge}${lastBadge}</span>
           <span class="tree-count">${countLabel}</span>
           <div class="tree-total-group">
             <span class="tree-total">${totalLabel}</span>
