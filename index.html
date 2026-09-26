@@ -55,8 +55,13 @@
   --shadow-float: 0 24px 55px -14px rgba(15,72,150,.22), inset 0 1px 0 rgba(255,255,255,.7);
   --font: 'IRANSansX', Tahoma, sans-serif;
   --topbar-bg: rgba(255,255,255,.4);
+  /* رنگ‌های دسته‌ای نمودار سهم شرکت‌ها (ترتیب ثابت، بررسی‌شده برای کوررنگی) */
+  --cat-1: #2a78d6; --cat-2: #eb6834; --cat-3: #1baf7a; --cat-4: #eda100;
+  --cat-5: #e87ba4; --cat-6: #008300; --cat-7: #4a3aa7; --cat-other: #9aa3b2;
 }
 html[data-theme="dark"] {
+  --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+  --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-other: #6b7385;
   --surface: rgba(255,255,255,.07);
   --surface-tint: rgba(255,255,255,.04);
   --ink: #EAF0FB;
@@ -655,6 +660,33 @@ html[data-theme="dark"] .trend-tip { background: #EAF0FB; color: #0F1B33; }
 .tree-row .row-chips .company-chip { font-size: 11px; padding: 2px 9px; }
 .leaf-detail-inner .donut-panel { margin-bottom: 12px; }
 
+/* ---------- سهم شرکت‌ها از صدورهای ماه (نمای اپراتور) ---------- */
+.panel.share-panel { text-align: center; padding: 22px 20px; }
+.share-wrap { display: flex; align-items: center; justify-content: center; gap: 28px; flex-wrap: wrap; margin-top: 6px; }
+.share-donut { position: relative; width: 150px; height: 150px; flex-shrink: 0; }
+.share-donut svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.share-track { fill: none; stroke: var(--surface-tint); stroke-width: 14; }
+.share-arc { fill: none; stroke-width: 14; transition: opacity .15s, stroke-width .15s; cursor: default; }
+.share-panel.has-hl .share-arc { opacity: .3; }
+.share-panel.has-hl .share-arc.hl { opacity: 1; stroke-width: 17; }
+.share-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.share-center b { font-size: 22px; font-weight: 800; line-height: 1.15; }
+.share-center small { font-size: 11px; color: var(--ink-faint); }
+.share-legend { border-collapse: collapse; font-size: 12.5px; min-width: 220px; }
+.share-legend th { font-size: 11px; font-weight: 600; color: var(--ink-faint); padding: 0 10px 6px; text-align: right; }
+.share-legend th:not(:first-child), .share-legend td.num { text-align: left; font-variant-numeric: tabular-nums; }
+.share-legend td { padding: 5px 10px; border-top: 1px solid var(--line); color: var(--ink); white-space: nowrap; text-align: right; }
+.share-legend td.num { color: var(--ink-soft); }
+.share-legend td.num b { color: var(--ink); font-weight: 800; }
+.share-legend tr { transition: opacity .15s; }
+.share-panel.has-hl .share-legend tbody tr { opacity: .4; }
+.share-panel.has-hl .share-legend tbody tr.hl { opacity: 1; }
+.share-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-inline-end: 8px; vertical-align: middle; }
+@media (max-width: 560px) {
+  .share-wrap { gap: 16px; }
+  .share-legend { width: 100%; }
+}
+
 </style>
 </head>
 <body>
@@ -1087,7 +1119,7 @@ window.APP_CONFIG = Object.freeze({
   // نمای اپراتور
   // ---------------------------------------------------------------
   async function renderOperatorView(profile) {
-    const [{ data, error }, { data: ownStatus, error: statusError }, { data: scopeRows }] = await Promise.all([
+    const [{ data, error }, { data: ownStatus, error: statusError }, { data: scopeRows }, { data: companyRows }] = await Promise.all([
       sb.from('daily_targets')
         .select('report_date_jalali, report_date_sort, target_count, daily_salary')
         .eq('operator_id', profile.id)
@@ -1104,6 +1136,13 @@ window.APP_CONFIG = Object.freeze({
       profile.reports_to
         ? sb.from('team_lead_company_scope').select('company, sort_order').eq('profile_id', profile.reports_to).order('sort_order')
         : Promise.resolve({ data: null }),
+      // صدور ماه به تفکیک شرکت (RLS: فقط ردیف‌های خود کاربر)
+      sb.from('daily_company_targets')
+        .select('company, issue_count')
+        .eq('operator_id', profile.id)
+        .gte('report_date_sort', CURRENT_PERIOD.startSort)
+        .lte('report_date_sort', CURRENT_PERIOD.endSort)
+        .limit(5000),
     ]);
     const groupCompanies = (scopeRows || []).map((r) => (r.company || '').trim()).filter(Boolean);
 
@@ -1133,9 +1172,11 @@ window.APP_CONFIG = Object.freeze({
       <div class="summary-card"><div class="label">آخرین روز فعالیت</div><div class="value date">${last ? esc(faDigits(last.report_date_jalali)) : '—'}</div></div>
     `;
 
-    const topHtml = groupCompanies.length
+    bindShareDonutHover();
+    const topHtml = (groupCompanies.length
       ? renderGroupCompanies(ownStatus, groupCompanies)
-      : renderCompaniesRow(ownStatus) + renderCompanyDonut(ownStatus);
+      : renderCompaniesRow(ownStatus) + renderCompanyDonut(ownStatus))
+      + renderCompanyShareDonut(companyRows);
 
     if (rows.length === 0) {
       content.innerHTML = topHtml + '<div class="panel"><div class="empty-state">هنوز رکوردی برای شما ثبت نشده است</div></div>';
@@ -1247,6 +1288,89 @@ window.APP_CONFIG = Object.freeze({
         </div>
       </div>
     `;
+  }
+
+  // سهم هر شرکت از صدورهای ماه (دونات چندتکه). ۷ شرکت اول رنگ ثابتِ ترتیبی می‌گیرند، بقیه «سایر» (خاکستری).
+  const SHARE_SLOTS = 7;
+  function renderCompanyShareDonut(rows) {
+    const byCompany = {};
+    (rows || []).forEach((r) => {
+      const c = (r.company || '').trim();
+      const n = Number(r.issue_count) || 0;
+      if (c && n > 0) byCompany[c] = (byCompany[c] || 0) + n;
+    });
+    let items = Object.entries(byCompany).map(([company, count]) => ({ company, count }))
+      .sort((a, b) => b.count - a.count || a.company.localeCompare(b.company, 'fa'));
+    const total = items.reduce((s, x) => s + x.count, 0);
+    if (!total) return '';
+    if (items.length > SHARE_SLOTS + 1) {
+      const rest = items.slice(SHARE_SLOTS);
+      items = items.slice(0, SHARE_SLOTS).concat([{ company: 'سایر', count: rest.reduce((s, x) => s + x.count, 0), other: true }]);
+    }
+    items.forEach((x, i) => {
+      x.pct = (x.count / total) * 100;
+      x.color = x.other ? 'var(--cat-other)' : `var(--cat-${i + 1})`;
+    });
+
+    // حلقه با SVG: هر شرکت یک کمان، با فاصله‌ی ۲ پیکسلی بین کمان‌ها
+    const R = 48, C = 2 * Math.PI * R, GAP = items.length > 1 ? 2 : 0;
+    let offset = 0;
+    const arcs = items.map((x, i) => {
+      const len = (x.count / total) * C;
+      const dash = Math.max(len - GAP, 0.5);
+      const arc = `<circle class="share-arc" data-i="${i}" r="${R}" cx="60" cy="60" stroke="${x.color}"
+        stroke-dasharray="${dash.toFixed(2)} ${(C - dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}">
+        <title>${esc(x.company)}: ${formatNum(x.count)} صدور (${formatNum(Math.round(x.pct))}٪)</title></circle>`;
+      offset += len;
+      return arc;
+    }).join('');
+
+    const pctLabel = (p) => (p > 0 && p < 1 ? '<۱' : formatNum(Math.round(p)));
+    return `
+      <div class="panel chart share-panel">
+        <div class="label">سهم شرکت‌ها از صدورهای ${esc(CURRENT_PERIOD.label || 'این ماه')}</div>
+        <div class="share-wrap">
+          <div class="share-donut">
+            <svg viewBox="0 0 120 120" role="img" aria-label="سهم شرکت‌ها از ${formatNum(total)} صدور">
+              <circle class="share-track" r="${R}" cx="60" cy="60"></circle>
+              <g transform="rotate(-90 60 60)">${arcs}</g>
+            </svg>
+            <div class="share-center"><b>${formatNum(total)}</b><small>صدور</small></div>
+          </div>
+          <table class="share-legend">
+            <thead><tr><th>شرکت</th><th>صدور</th><th>سهم</th></tr></thead>
+            <tbody>
+              ${items.map((x, i) => `
+                <tr data-i="${i}">
+                  <td><span class="share-swatch" style="background:${x.color}"></span>${esc(x.company)}</td>
+                  <td class="num">${formatNum(x.count)}</td>
+                  <td class="num"><b>${pctLabel(x.pct)}٪</b></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  // هاور روی کمان یا ردیف جدول: همان شرکت برجسته می‌شود (یک‌بار، با event delegation)
+  let shareHoverBound = false;
+  function bindShareDonutHover() {
+    if (shareHoverBound) return;
+    shareHoverBound = true;
+    const set = (panel, i) => {
+      panel.classList.toggle('has-hl', i != null);
+      panel.querySelectorAll('[data-i]').forEach((el) => el.classList.toggle('hl', el.getAttribute('data-i') === i));
+    };
+    document.addEventListener('mouseover', (e) => {
+      const t = e.target.closest && e.target.closest('.share-panel [data-i]');
+      const panel = e.target.closest && e.target.closest('.share-panel');
+      if (panel) set(panel, t ? t.getAttribute('data-i') : null);
+    });
+    document.addEventListener('mouseout', (e) => {
+      const panel = e.target.closest && e.target.closest('.share-panel');
+      if (panel && !panel.contains(e.relatedTarget)) set(panel, null);
+    });
   }
 
   function renderCompanyDonut(status) {
