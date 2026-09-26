@@ -55,13 +55,13 @@
   --shadow-float: 0 24px 55px -14px rgba(15,72,150,.22), inset 0 1px 0 rgba(255,255,255,.7);
   --font: 'IRANSansX', Tahoma, sans-serif;
   --topbar-bg: rgba(255,255,255,.4);
-  /* رنگ‌های نمودار سهم شرکت‌ها: خانواده‌ی آبی/فیروزه‌ای/بنفشِ داشبورد، ترتیب ثابت (بررسی‌شده برای کوررنگی در هر دو تم) */
-  --cat-1: #1656F5; --cat-2: #0FB5A6; --cat-3: #C24BDA; --cat-4: #0B7FA8;
-  --cat-5: #7B4DFF; --cat-6: #00B4FF; --cat-other: #A7B4C8;
+  /* رنگ‌های نمودار سهم شرکت‌ها: طیف آبیِ خود داشبورد، از پررنگ (بیشترین سهم) تا آسمانی؛ پله‌ها بررسی‌شده که از هم و از زمینه جدا دیده شوند */
+  --cat-1: #0B2E9A; --cat-2: #1650E6; --cat-3: #2383F2; --cat-4: #12A6E6;
+  --cat-5: #4FBDEB; --cat-other: #C3CEDD;
 }
 html[data-theme="dark"] {
-  --cat-1: #3A78F2; --cat-2: #13A393; --cat-3: #C255DB; --cat-4: #1C7FA9;
-  --cat-5: #8565F2; --cat-6: #0A9AD4; --cat-other: #5E6A80;
+  --cat-1: #2450E0; --cat-2: #3D78FF; --cat-3: #1E9BFF; --cat-4: #29C2FF;
+  --cat-5: #8AD8FF; --cat-other: #4A5570;
   --surface: rgba(255,255,255,.07);
   --surface-tint: rgba(255,255,255,.04);
   --ink: #EAF0FB;
@@ -1290,8 +1290,8 @@ window.APP_CONFIG = Object.freeze({
     `;
   }
 
-  // سهم هر شرکت از صدورهای ماه (دونات چندتکه). ۶ شرکت اول رنگ ثابتِ ترتیبی می‌گیرند، بقیه «سایر» (خاکستری).
-  const SHARE_SLOTS = 6;
+  // سهم هر شرکت از صدورهای ماه (دونات چندتکه). ۵ شرکت اول به ترتیب سهم، از آبی پررنگ تا آسمانی؛ بقیه «سایر» (خاکستری).
+  const SHARE_SLOTS = 5;
   function renderCompanyShareDonut(rows) {
     const byCompany = {};
     (rows || []).forEach((r) => {
