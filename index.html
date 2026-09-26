@@ -801,9 +801,10 @@ window.APP_CONFIG = Object.freeze({
     manager: 'مدیر',
     team_pair: 'دو تیم',
   };
-  // نود مجازی «تیم X و Y» برای سرگروهی که پارتنر دارد
-  const PAIR_ID = '__pair';
+  // نودهای مجازی: «تیم X و Y» برای سرگروه‌های پارتنر، و ریشه‌ی درخت برای سرگروهِ دارای پارتنر
+  const PAIR_PREFIX = '__pair:';
   const TREE_ROOT_ID = '__root';
+  const isVirtualId = (id) => String(id).startsWith('__');
 
   const RECENT_DAYS_LIMIT = 200;
 
@@ -1408,10 +1409,10 @@ window.APP_CONFIG = Object.freeze({
       sb.from('company_active_status').select('company, active_count').order('active_count', { ascending: false }),
       // شرکت‌های گروه هر سرگروه (RLS: سرگروه فقط گروه خودش، سرپرست/مدیر همه)
       sb.from('team_lead_company_scope').select('profile_id, company, sort_order').order('sort_order'),
-      // سرگروه پارتنر (RLS: تیم پارتنر هم جزو زیرمجموعه‌ی سرگروه برگردانده می‌شود)
-      profile.role === 'team_lead'
-        ? sb.from('team_lead_partners').select('partner_id').eq('profile_id', profile.id).maybeSingle()
-        : Promise.resolve({ data: null }),
+      // سرگروه‌های پارتنر (RLS: سرگروه فقط ردیف خودش، سرپرست/مدیر همه؛ تیم پارتنر جزو زیرمجموعه‌ی سرگروه برمی‌گردد)
+      profile.role === 'operator'
+        ? Promise.resolve({ data: [] })
+        : sb.from('team_lead_partners').select('profile_id, partner_id'),
     ]);
 
     if (profilesRes.error || targetsRes.error) {
@@ -1432,18 +1433,45 @@ window.APP_CONFIG = Object.freeze({
       if (p.reports_to) (state.childrenOf[p.reports_to] = state.childrenOf[p.reports_to] || []).push(p.id);
     });
 
-    // سرگروه با پارتنر: ریشه‌ی درخت یک نود «تیم X و Y» است که زیرش دو تیم جدا می‌آیند
-    const partnerId = partnerRes.data && partnerRes.data.partner_id;
-    const partner = partnerId ? state.profileById[partnerId] : null;
+    // --- تیم‌بندی: هر دو سرگروه پارتنر زیر یک نود «تیم X و Y»
+    const partnerOf = {};
+    (partnerRes.data || []).forEach((r) => { partnerOf[r.profile_id] = r.partner_id; });
+    function makePair(aId, bId) {
+      const id = PAIR_PREFIX + aId;
+      const a = state.profileById[aId], b = state.profileById[bId];
+      state.profileById[id] = { id, full_name: `تیم ${a.full_name || ''} و ${b.full_name || ''}`, role: 'team_pair' };
+      state.childrenOf[id] = [aId, bId];
+      return id;
+    }
+    // سرگروهِ دارای پارتنر: ریشه‌ی درخت خودِ نود «تیم من و پارتنرم» است
+    const partner = profile.role === 'team_lead' && partnerOf[profile.id] ? state.profileById[partnerOf[profile.id]] : null;
+    let summaryId = profile.id;
     if (partner) {
-      state.profileById[PAIR_ID] = { id: PAIR_ID, full_name: `تیم ${profile.full_name || ''} و ${partner.full_name || ''}`, role: 'team_pair' };
-      state.childrenOf[PAIR_ID] = [profile.id, partner.id];
-      state.childrenOf[TREE_ROOT_ID] = [PAIR_ID];
+      summaryId = makePair(profile.id, partner.id);
+      state.childrenOf[TREE_ROOT_ID] = [summaryId];
       state.treeRootId = TREE_ROOT_ID;
     } else {
       state.treeRootId = profile.id;
+      // سرپرست/مدیر: سرگروه‌های پارتنری که زیر یک نفرند، جای خودشان یک نود تیم می‌گیرند
+      Object.keys(state.childrenOf).forEach((parentId) => {
+        const kids = state.childrenOf[parentId];
+        const used = new Set();
+        const grouped = [];
+        kids.forEach((id) => {
+          if (used.has(id)) return;
+          const pid = partnerOf[id];
+          const p = state.profileById[id];
+          if (p && p.role === 'team_lead' && pid && pid !== id && kids.includes(pid) && !used.has(pid)) {
+            used.add(id); used.add(pid);
+            grouped.push(makePair(id, pid));
+          } else {
+            grouped.push(id);
+          }
+        });
+        // تیم‌ها اول، بعد بقیه
+        state.childrenOf[parentId] = grouped.filter(isVirtualId).concat(grouped.filter((id) => !isVirtualId(id)));
+      });
     }
-    const summaryId = partner ? PAIR_ID : profile.id;
     // فقط افرادِ داخل درخت (مدیرِ خودِ کاربر که RLS برمی‌گرداند شمرده و جستجو نمی‌شود)
     state.treeIds = new Set();
     (function collect(id) {
@@ -1479,7 +1507,7 @@ window.APP_CONFIG = Object.freeze({
     computeAggregates();
 
     // در حالت دو تیم، خودِ دو سرگروه جزو «زیرمجموعه» شمرده نمی‌شوند
-    const totalTeam = [...state.treeIds].filter((id) => !(partner && (id === profile.id || id === partner.id))).length;
+    const totalTeam = [...state.treeIds].filter((id) => !isVirtualId(id) && !(partner && (id === profile.id || id === partner.id))).length;
     const grandTotal = state.subtreeTotal[summaryId] || 0;
     const grandTotalSalary = state.subtreeSalary[summaryId] || 0;
     const myActive = state.activeCountBySubtree[summaryId] || 0;
