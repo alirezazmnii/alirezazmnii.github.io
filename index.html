@@ -537,17 +537,19 @@ html[data-theme="dark"] .company-stats-row .company-pill { background: rgba(0,18
 .donut-info { text-align: right; max-width: 360px; display: grid; gap: 8px; }
 .donut-info .updated { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 6px; }
 .donut-info .names { font-size: 13px; }
-/* نمای شرکت‌های گروه: دایره سمت راست، شرکت‌ها کنارش همیشه در یک خط */
-.panel.donut-panel.group-panel { text-align: right; }
-.donut-wrap.group { justify-content: flex-start; flex-wrap: nowrap; }
-.donut-wrap.group .donut-info { max-width: none; flex: 1; min-width: 0; }
-.donut-wrap.group .company-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+/* نمای شرکت‌های گروه: وسط‌چین؛ دایره سمت راست، شرکت‌ها کنارش همیشه در یک خط */
+.panel.donut-panel.group-panel { text-align: center; }
+.donut-wrap.group { justify-content: center; flex-wrap: nowrap; }
+.donut-wrap.group .donut-info { max-width: 100%; min-width: 0; text-align: center; justify-items: center; }
+.donut-wrap.group .company-chips { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: thin; padding-bottom: 2px; }
 .donut-wrap.group .company-chip { white-space: nowrap; flex-shrink: 0; }
+.donut-wrap.group .outside { justify-items: center; }
+.donut-wrap.group .outside .company-chips { justify-content: center; }
 .donut-hole b { line-height: 1.15; direction: rtl; unicode-bidi: isolate; }
 .donut-hole small { line-height: 1.4; margin-top: 2px; }
 @media (max-width: 560px) {
-  .donut-wrap.group { flex-direction: column; align-items: stretch; gap: 16px; }
-  .donut-wrap.group .donut { align-self: center; }
+  .donut-wrap.group { flex-direction: column; align-items: center; gap: 16px; }
+  .donut-wrap.group .donut-info { width: 100%; }
   .donut-wrap.group .company-chips { gap: 4px; }
   .donut-wrap.group .company-chip { font-size: 10.5px; padding: 3px 7px; }
 }
