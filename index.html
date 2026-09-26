@@ -520,12 +520,16 @@ html[data-theme="dark"] .company-stats-row .company-pill { background: rgba(0,18
 .panel.chart > .label { font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; }
 .panel.donut-panel { text-align: center; padding: 22px 20px; }
 .donut-wrap { display: flex; align-items: center; justify-content: center; gap: 22px; flex-wrap: wrap; }
-.donut {
-  position: relative; width: 120px; height: 120px; border-radius: 50%;
+/* فقط حلقه رنگ می‌گیرد؛ وسط دایره شفاف است (mask) */
+.donut { position: relative; width: 120px; height: 120px; flex-shrink: 0; }
+.donut::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
   background: conic-gradient(var(--accent) 0 calc(var(--pct) * 1%), var(--surface-tint) 0 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px));
 }
 .donut-hole {
-  position: absolute; inset: 14px; border-radius: 50%; background: var(--surface);
+  position: absolute; inset: 14px; border-radius: 50%;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
 .donut-hole b { font-size: 20px; font-weight: 800; }
@@ -533,6 +537,15 @@ html[data-theme="dark"] .company-stats-row .company-pill { background: rgba(0,18
 .donut-info { text-align: right; max-width: 360px; display: grid; gap: 8px; }
 .donut-info .updated { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 6px; }
 .donut-info .names { font-size: 13px; }
+/* نمای شرکت‌های گروه: دایره سمت راست، شرکت‌ها کنارش در یک خط */
+.donut-wrap.group { justify-content: flex-start; flex-wrap: nowrap; padding-inline-start: 12px; }
+.donut-wrap.group .donut-info { max-width: none; flex: 1; min-width: 0; }
+.donut-wrap.group .company-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.donut-wrap.group .company-chip { white-space: nowrap; flex-shrink: 0; }
+@media (max-width: 560px) {
+  .donut-wrap.group { flex-wrap: wrap; justify-content: center; padding-inline-start: 0; }
+  .donut-wrap.group .company-chips { flex-wrap: wrap; overflow: visible; }
+}
 .trend-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
 .trend-head .label { font-size: 13px; color: var(--ink-soft); }
 .trend-max { font-size: 11.5px; color: var(--ink-faint); }
@@ -596,8 +609,15 @@ html[data-theme="dark"] .trend-tip { background: #EAF0FB; color: #0F1B33; }
   font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 999px;
   background: var(--surface-tint); color: var(--ink-faint); border: 1px solid var(--line);
 }
-.company-chip.on { background: var(--good-soft); color: var(--good); border-color: transparent; font-weight: 700; }
-.donut-info .outside { font-size: 12px; color: var(--ink-soft); }
+.company-chip.on { background: var(--accent-soft); color: var(--accent-strong); border-color: transparent; font-weight: 700; }
+.company-chip.extra { background: transparent; color: var(--accent-strong); border: 1px dashed var(--accent); font-weight: 700; }
+.donut-info .outside { display: grid; gap: 6px; }
+.donut-info .outside .label { font-size: 12px; color: var(--ink-soft); margin: 0; }
+.donut-info .outside .company-chips { flex-wrap: wrap; overflow: visible; }
+/* شرکت‌های اپراتور در درخت (سرگروه/سرپرست) */
+.tree-row .company-chips.row-chips { gap: 4px; }
+.tree-row .row-chips .company-chip { font-size: 11px; padding: 2px 9px; }
+.leaf-detail-inner .donut-panel { margin-bottom: 12px; }
 
 </style>
 </head>
@@ -894,6 +914,7 @@ window.APP_CONFIG = Object.freeze({
     targetsByOperator: {},
     rawTargetsByOperator: {},
     statusByOperator: {},
+    scopeByLead: {},
     subtreeTotal: {},
     subtreeSalary: {},
     activeCountBySubtree: {},
@@ -1154,7 +1175,7 @@ window.APP_CONFIG = Object.freeze({
   // (تارگت‌ها به‌تفکیک شرکت ثبت نمی‌شن، پس مبنا وضعیت فعال/غیرفعال شرکت‌هاست، نه تعداد صدور هر شرکت)
   // شرکت‌های گروه (از team_lead_company_scope) در مقابل شرکت‌هایی که اپراتور الان در آن‌ها فعال است:
   // دونات = چند شرکت از شرکت‌های گروه فعال است؛ زیرش همه‌ی شرکت‌های گروه، فعال‌ها پررنگ.
-  function renderGroupCompanies(status, group) {
+  function renderGroupCompanies(status, group, title) {
     const active = new Set(splitCompanies(status && status.companies));
     const activeInGroup = group.filter((c) => active.has(c));
     const outside = [...active].filter((c) => !group.includes(c));
@@ -1164,8 +1185,8 @@ window.APP_CONFIG = Object.freeze({
       : '—';
     return `
       <div class="panel chart donut-panel">
-        <div class="label">شرکت‌های فعال شما از شرکت‌های گروه</div>
-        <div class="donut-wrap">
+        <div class="label">${esc(title || 'شرکت‌های فعال شما از شرکت‌های گروه')}</div>
+        <div class="donut-wrap group">
           <div class="donut" style="--pct:${pct}" role="img" aria-label="${pct} درصد از شرکت‌های گروه فعال">
             <div class="donut-hole"><b>${formatNum(pct)}٪</b><small>${formatNum(activeInGroup.length)} از ${formatNum(group.length)}</small></div>
           </div>
@@ -1173,7 +1194,11 @@ window.APP_CONFIG = Object.freeze({
             <div class="company-chips">
               ${group.map((c) => `<span class="company-chip ${active.has(c) ? 'on' : ''}">${active.has(c) ? '✓ ' : ''}${esc(c)}</span>`).join('')}
             </div>
-            ${outside.length ? `<div class="outside">فعال خارج از گروه: ${outside.map(esc).join('، ')}</div>` : ''}
+            ${outside.length ? `
+              <div class="outside">
+                <div class="label">فعال در شرکت‌های خارج از گروه:</div>
+                <div class="company-chips">${outside.map((c) => `<span class="company-chip extra">${esc(c)}</span>`).join('')}</div>
+              </div>` : ''}
             <div class="updated">آخرین به‌روزرسانی: ${esc(updated)}</div>
           </div>
         </div>
@@ -1336,12 +1361,11 @@ window.APP_CONFIG = Object.freeze({
         .lte('report_date_sort', CURRENT_PERIOD.endSort)
         .order('report_date_sort', { ascending: false })
         .limit(10000),
-      sb.from('issuer_active_status').select('operator_id, is_active, is_active_to_issue, status, companies, all_companies'),
+      sb.from('issuer_active_status').select('operator_id, is_active, is_active_to_issue, status, companies, all_companies, updated_at'),
       // آمار شرکت‌ها: RLS خودش تعیین می‌کنه چه شرکت‌هایی دیده بشه
       sb.from('company_active_status').select('company, active_count').order('active_count', { ascending: false }),
-      profile.role === 'team_lead'
-        ? sb.from('team_lead_company_scope').select('company, sort_order').eq('profile_id', profile.id).order('sort_order')
-        : Promise.resolve({ data: null }),
+      // شرکت‌های گروه هر سرگروه (RLS: سرگروه فقط گروه خودش، سرپرست/مدیر همه)
+      sb.from('team_lead_company_scope').select('profile_id, company, sort_order').order('sort_order'),
     ]);
 
     if (profilesRes.error || targetsRes.error) {
@@ -1360,6 +1384,13 @@ window.APP_CONFIG = Object.freeze({
     state.visibleProfiles.forEach((p) => {
       state.profileById[p.id] = p;
       if (p.reports_to) (state.childrenOf[p.reports_to] = state.childrenOf[p.reports_to] || []).push(p.id);
+    });
+
+    // --- شرکت‌های گروه، به‌تفکیک سرگروه
+    state.scopeByLead = {};
+    (scopeRes.data || []).forEach((r) => {
+      const c = (r.company || '').trim();
+      if (c) (state.scopeByLead[r.profile_id] = state.scopeByLead[r.profile_id] || []).push(c);
     });
 
     // --- وضعیت فعال/غیرفعال
@@ -1401,11 +1432,12 @@ window.APP_CONFIG = Object.freeze({
     // --- ردیف آمار شرکت‌ها
     let companyStatsHtml = '';
     const companyStats = companyRes.data || [];
-    if (profile.role === 'team_lead' && scopeRes.data && scopeRes.data.length) {
+    const myScope = state.scopeByLead[profile.id] || [];
+    if (profile.role === 'team_lead' && myScope.length) {
       // ترتیب و لیست شرکت‌ها از جدول team_lead_company_scope؛ شرکت بدون آمار = ۰
       const countBy = {};
       companyStats.forEach((c) => { countBy[c.company] = c.active_count; });
-      companyStatsHtml = companyPillsHtml(scopeRes.data.map((s) => ({ company: s.company, active_count: countBy[s.company] || 0 })));
+      companyStatsHtml = companyPillsHtml(myScope.map((c) => ({ company: c, active_count: countBy[c] || 0 })));
     } else if (companyStats.length) {
       companyStatsHtml = companyPillsHtml(companyStats);
     }
@@ -1540,10 +1572,7 @@ window.APP_CONFIG = Object.freeze({
       ? `<span class="active-badge"><span class="status-dot"></span>${formatNum(state.activeCountBySubtree[id])} فعال</span>`
       : '';
 
-    const displayCompanies = (st && (st.companies || st.all_companies)) || '';
-    const companiesBadge = (isLeaf && displayCompanies)
-      ? `<span class="company-pill tiny ${st.companies ? '' : 'inactive-companies'}" title="${st.companies ? 'شرکت‌های فعال' : 'شرکت‌هایی که باهاشون کار کرده (غیرفعال)'}">${esc(displayCompanies)}</span>`
-      : '';
+    const companiesBadge = isLeaf ? operatorCompanyChips(p, st) : '';
 
     const showToday = isLeaf && own && (state.viewerRole === 'team_lead' || state.viewerRole === 'supervisor');
     const todayBadge = showToday
@@ -1572,9 +1601,28 @@ window.APP_CONFIG = Object.freeze({
     `;
   }
 
+  // شرکت‌هایی که اپراتور در آن‌ها فعال است؛ اگر سرگروهش گروه شرکت دارد، خارج از گروه‌ها جدا (خط‌چین) نشان داده می‌شوند
+  function operatorCompanyChips(p, st) {
+    const companies = splitCompanies(st && st.companies);
+    if (!companies.length) return '';
+    const group = state.scopeByLead[p.reports_to] || [];
+    const inGroup = group.length ? group.filter((c) => companies.includes(c)) : companies;
+    const outside = group.length ? companies.filter((c) => !group.includes(c)) : [];
+    return `<span class="company-chips row-chips" title="شرکت‌های فعال">${
+      inGroup.map((c) => `<span class="company-chip on">${esc(c)}</span>`).join('')
+    }${
+      outside.map((c) => `<span class="company-chip extra" title="خارج از شرکت‌های گروه">${esc(c)}</span>`).join('')
+    }</span>`;
+  }
+
   function buildLeafDetailHtml(id) {
+    const p = state.profileById[id];
+    const group = (p && state.scopeByLead[p.reports_to]) || [];
+    const groupHtml = group.length
+      ? renderGroupCompanies(state.statusByOperator[id], group, `شرکت‌های فعال ${p.full_name || ''} از شرکت‌های گروه`)
+      : '';
     const rows = sortAsc(state.rawTargetsByOperator[id]);
-    return rows.length ? rowsTableHtml(rows) : '<div class="empty-state">رکوردی برای این فرد ثبت نشده است</div>';
+    return groupHtml + (rows.length ? rowsTableHtml(rows) : '<div class="empty-state">رکوردی برای این فرد ثبت نشده است</div>');
   }
 
 
