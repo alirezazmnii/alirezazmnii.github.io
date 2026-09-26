@@ -397,6 +397,14 @@ select.tree-search option { color: #0F1B33; }
 }
 .tree-row.role-team_lead:hover { border-color: var(--accent); }
 .tree-row.role-team_lead .tree-role { background: linear-gradient(135deg, #3B3FD8, #2A1FA8); color: #fff; }
+/* نود «تیم X و Y»: پررنگ‌تر از ردیف سرگروه */
+.tree-row.role-team_pair {
+  background: linear-gradient(135deg, rgba(22,86,245,.20) 0%, rgba(0,180,255,.12) 100%);
+  border-color: rgba(22,86,245,.50);
+}
+.tree-row.role-team_pair:hover { border-color: var(--accent-deep); }
+.tree-row.role-team_pair .name { font-size: 14.5px; font-weight: 800; }
+.tree-row.role-team_pair .tree-role { background: linear-gradient(135deg, #0F5C73, #0A4356); color: #fff; }
 
 /* ---------- Logo / brand ---------- */
 .login-bg-logo {
@@ -791,7 +799,11 @@ window.APP_CONFIG = Object.freeze({
     team_lead: 'سرگروه',
     supervisor: 'سرپرست',
     manager: 'مدیر',
+    team_pair: 'دو تیم',
   };
+  // نود مجازی «تیم X و Y» برای سرگروهی که پارتنر دارد
+  const PAIR_ID = '__pair';
+  const TREE_ROOT_ID = '__root';
 
   const RECENT_DAYS_LIMIT = 200;
 
@@ -948,6 +960,8 @@ window.APP_CONFIG = Object.freeze({
     activeCountBySubtree: {},
     search: '',
     companyFilter: '',
+    treeRootId: null,
+    treeIds: new Set(),
   };
 
   function isFullyActive(st) {
@@ -1381,7 +1395,7 @@ window.APP_CONFIG = Object.freeze({
     content.innerHTML = '<div class="loading">در حال بارگذاری ساختار تیم...</div>';
 
     // هر سه کوئری توسط RLS به «خود کاربر + زیرمجموعه‌اش» محدود می‌شن
-    const [profilesRes, targetsRes, statusRes, companyRes, scopeRes] = await Promise.all([
+    const [profilesRes, targetsRes, statusRes, companyRes, scopeRes, partnerRes] = await Promise.all([
       sb.from('profiles').select('id, full_name, role, reports_to'),
       sb.from('daily_targets')
         .select('operator_id, report_date_jalali, report_date_sort, target_count, daily_salary')
@@ -1394,6 +1408,10 @@ window.APP_CONFIG = Object.freeze({
       sb.from('company_active_status').select('company, active_count').order('active_count', { ascending: false }),
       // شرکت‌های گروه هر سرگروه (RLS: سرگروه فقط گروه خودش، سرپرست/مدیر همه)
       sb.from('team_lead_company_scope').select('profile_id, company, sort_order').order('sort_order'),
+      // سرگروه پارتنر (RLS: تیم پارتنر هم جزو زیرمجموعه‌ی سرگروه برگردانده می‌شود)
+      profile.role === 'team_lead'
+        ? sb.from('team_lead_partners').select('partner_id').eq('profile_id', profile.id).maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
 
     if (profilesRes.error || targetsRes.error) {
@@ -1413,6 +1431,24 @@ window.APP_CONFIG = Object.freeze({
       state.profileById[p.id] = p;
       if (p.reports_to) (state.childrenOf[p.reports_to] = state.childrenOf[p.reports_to] || []).push(p.id);
     });
+
+    // سرگروه با پارتنر: ریشه‌ی درخت یک نود «تیم X و Y» است که زیرش دو تیم جدا می‌آیند
+    const partnerId = partnerRes.data && partnerRes.data.partner_id;
+    const partner = partnerId ? state.profileById[partnerId] : null;
+    if (partner) {
+      state.profileById[PAIR_ID] = { id: PAIR_ID, full_name: `تیم ${profile.full_name || ''} و ${partner.full_name || ''}`, role: 'team_pair' };
+      state.childrenOf[PAIR_ID] = [profile.id, partner.id];
+      state.childrenOf[TREE_ROOT_ID] = [PAIR_ID];
+      state.treeRootId = TREE_ROOT_ID;
+    } else {
+      state.treeRootId = profile.id;
+    }
+    const summaryId = partner ? PAIR_ID : profile.id;
+    // فقط افرادِ داخل درخت (مدیرِ خودِ کاربر که RLS برمی‌گرداند شمرده و جستجو نمی‌شود)
+    state.treeIds = new Set();
+    (function collect(id) {
+      (state.childrenOf[id] || []).forEach((cid) => { if (!state.treeIds.has(cid)) { state.treeIds.add(cid); collect(cid); } });
+    })(summaryId);
 
     // --- شرکت‌های گروه، به‌تفکیک سرگروه
     state.scopeByLead = {};
@@ -1442,10 +1478,11 @@ window.APP_CONFIG = Object.freeze({
 
     computeAggregates();
 
-    const totalTeam = state.visibleProfiles.length - 1;
-    const grandTotal = state.subtreeTotal[profile.id] || 0;
-    const grandTotalSalary = state.subtreeSalary[profile.id] || 0;
-    const myActive = state.activeCountBySubtree[profile.id] || 0;
+    // در حالت دو تیم، خودِ دو سرگروه جزو «زیرمجموعه» شمرده نمی‌شوند
+    const totalTeam = [...state.treeIds].filter((id) => !(partner && (id === profile.id || id === partner.id))).length;
+    const grandTotal = state.subtreeTotal[summaryId] || 0;
+    const grandTotalSalary = state.subtreeSalary[summaryId] || 0;
+    const myActive = state.activeCountBySubtree[summaryId] || 0;
 
     $('summary-row').innerHTML = `
       <div class="summary-card"><div class="label">جمع کل حقوق تیم <span class="unit">(ریال)</span></div><div class="value salary">${formatNum(grandTotalSalary)}</div></div>
@@ -1493,7 +1530,7 @@ window.APP_CONFIG = Object.freeze({
       <div id="tree-root"></div>
     `;
 
-    renderTree(profile.id);
+    renderTree(state.treeRootId);
     if (bot) bindTrendChart(dailySeries(botRows), 'bot');
 
     $('tree-search').addEventListener('input', (e) => {
@@ -1531,7 +1568,7 @@ window.APP_CONFIG = Object.freeze({
       tot[id] = t; sal[id] = s; act[id] = a;
       visiting.delete(id);
     }
-    state.visibleProfiles.forEach((p) => walk(p.id));
+    Object.keys(state.profileById).forEach(walk);
     state.subtreeTotal = tot;
     state.subtreeSalary = sal;
     state.activeCountBySubtree = act;
@@ -1539,9 +1576,9 @@ window.APP_CONFIG = Object.freeze({
 
   function updateTreeFilter() {
     const root = $('tree-root');
-    if (!state.search && !state.companyFilter) { renderTree(state.profile.id); return; }
+    if (!state.search && !state.companyFilter) { renderTree(state.treeRootId); return; }
     const q = state.search.toLowerCase();
-    let matches = state.visibleProfiles.filter((p) => p.id !== state.profile.id);
+    let matches = state.visibleProfiles.filter((p) => p.id !== state.profile.id && state.treeIds.has(p.id));
     if (q) matches = matches.filter((p) => (p.full_name || '').toLowerCase().includes(q));
     if (state.companyFilter) {
       matches = matches.filter((p) => {
@@ -1589,14 +1626,15 @@ window.APP_CONFIG = Object.freeze({
 
     const totalLabel = isLeaf ? (own ? formatNum(own.total) : '—') : formatNum(state.subtreeTotal[id]);
     const salaryLabel = isLeaf ? (own ? formatNum(own.totalSalary) : '—') : formatNum(state.subtreeSalary[id]);
-    const countLabel = isLeaf ? (own ? `${formatNum(own.count)} روز` : 'بدون رکورد') : `${formatNum(kids.length)} زیرمجموعه`;
+    const countLabel = isLeaf ? (own ? `${formatNum(own.count)} روز` : 'بدون رکورد')
+      : p.role === 'team_pair' ? `${formatNum(kids.length)} تیم` : `${formatNum(kids.length)} زیرمجموعه`;
 
     // نقطه‌ی وضعیت فقط برای خودِ اپراتورها؛ سرگروهِ بدون زیرمجموعه هم فلش می‌گیره
     const lead = (isLeaf && p.role === 'operator')
       ? `<span class="leaf-dot"></span><span class="status-dot ${active ? '' : 'inactive'}" title="${active ? 'فعال' : 'غیرفعال'}"></span>`
       : '<span class="chevron">◀</span>';
 
-    const activeBadge = (!isLeaf && p.role === 'team_lead')
+    const activeBadge = (!isLeaf && (p.role === 'team_lead' || p.role === 'team_pair'))
       ? `<span class="active-badge"><span class="status-dot"></span>${formatNum(state.activeCountBySubtree[id])} فعال</span>`
       : '';
 
